@@ -1,103 +1,160 @@
+"""author: Willem Swarts 24223468"""
 import numpy as np
 import scipy.ndimage as im
 import scipy.misc as misc
 import matplotlib.pyplot as plot
 import scipy.signal as signal
 
-
-"""Ek het nie tyd gehad om op te spoor hoekom my Gaussian nie werk nie, so ek het maar n library call gebruik"""
 np.set_printoptions(precision=1)
 def LaplacianOfGaussian(x, y, sigma):
-    power = -1*((np.power(x,2) + np.power(y,2))/(2* np.power(sigma, 2)))
-    G = np.exp(power)
-    LaplaceTerm = (np.power(x, 1) + np.power(y, 2) -(2 * np.power(sigma, 2))) /np.power(sigma, 4)
-    return LaplaceTerm * G
+    """Calculates the laplacian of the gaussian via a single equation"""
+    LoG = ((np.power(x, 2) + np.power(y, 2) - (2 * np.power(sigma, 2))) / np.power(sigma, 4))\
+        * np.exp(-1 * ((np.power(x, 2) + np.power(y, 2)) / (2 * np.power(sigma, 2))))
+    return LoG
 
+def Gaussian(x, y, sigma):
+    """Calculates the gaussian filter"""
+    guass = np.exp(-1 * ((np.power(x, 2) + np.power(y, 2)) / (2 * np.power(sigma, 2))))
+    return guass
 
-def generate_mask_gauss(length, width, sigma):
-    """generates two coordinate matrices for masks"""
-    XCordinate = np.zeros((width, length))
-    Ycoordinate = np.zeros((width, length))
-    gaussianMask = np.zeros((width, length))
-
-    center = int((width-1)/2)
-    # print(center)
-
-    for i in range(width):
-        for j in range(length):
-            if( j == center and i == center):
-                Ycoordinate[center, center] = 0
+def Laplacian():
+    """Generates a 3x3 Gaussian mask and returns the mask"""
+    laplacian_mask = np.zeros((3, 3))
+    counter = 0
+    for i in range(0, laplacian_mask.shape[0]):
+        for j in range(0, laplacian_mask.shape[1]):
+            if (i == 1 and j == 1):
+                laplacian_mask[i, j] = -8
+                counter += 8
             else:
-                Ycoordinate[i, j] = center - j
-                XCordinate[i, j] = i - center
+                laplacian_mask[i, j] = 1
+                counter += 1
 
-    XCordinate = np.transpose(XCordinate)
-    Ycoordinate = np.transpose(Ycoordinate)
-    # print(XCordinate)
-    """apply the gaussian filter"""
-    for i in range(0,width-1,1):
-        for j in range(0, width-1, 1):
-            gaussianMask[i,j] = LaplacianOfGaussian(XCordinate[i, j], Ycoordinate[i,j], sigma)
-    print(gaussianMask)
-    return gaussianMask
+    return laplacian_mask
+
+def GaussFirst(imageName, filterSize, sigma, imageTitle):
+    """Calculates the LoG by first applying the Gaussian and then the laplacian:
+    :parameter imageName must include the file extension"""
+
+    imageDirectory = "./input/" + imageName
+    chosenImage = im.imread(imageDirectory)
+
+    #     Calls Gaussian to generate the filter to be applied
+    mask = np.zeros((filterSize, filterSize))
+    halfway = int((filterSize -1)/2)
+    for x in range(-halfway, halfway):
+        for y in range(-halfway, halfway):
+            mask[x + halfway+1, y + halfway + 1] = Gaussian(x, y , sigma)
+
+    #     applies the filter to the image
+    image_G = signal.convolve2d(chosenImage, mask)
+    image_LoG = signal.convolve2d(image_G, Laplacian())
+
+    plot.imshow(image_LoG, cmap='gray')
+    titleOfPlot = str(imageName) + "LoG(G first) mask with dimension of " + str(filterSize) + " and sigma =" + str(sigma)
+    plot.title(titleOfPlot)
+    plot.show()
+    figureOutPathFilter = "./output_hw2/gaussianFirst/" + imageTitle + ".png"
+    misc.imsave(figureOutPathFilter, image_LoG)
+
+    #     apply the zerocrossing to obtain the image's edges
+    imageZeroX = ZeroCrossing(image_LoG, sigma)
+    plot.imshow(imageZeroX, cmap='gray')
+    # X in filename indicates zero crossing
+    titleOfPlotX = imageName + "LoG (G_first) and zero crossing mask with dimension of " + str(filterSize) + " and sigma=" + str(
+        sigma)
+    plot.title(titleOfPlot)
+    plot.show()
+    figureOutPathFilterX = "./output_hw2/gaussianFirst/" + imageTitle + "_zerocross.png"
+    misc.imsave(name=figureOutPathFilterX, arr=imageZeroX)
+
+
+
+def generateMaskGaussian(mask_dimension, sigma):
+    """applies the LoG formula to a mask with:
+    :parameter x, y: the x and y coordinate for the mask
+    :parameter sigma: the standard deviation for the image, depending on the mask size"""
+    mask = np.zeros((mask_dimension, mask_dimension))
+    for i in range(mask_dimension):
+        for j in range(mask_dimension):
+            x = i - int((mask_dimension - 1) / 2)
+            y = j - int((mask_dimension - 1) / 2)
+            mask[i][j] = LaplacianOfGaussian(x, y, sigma)
+    return mask
 
 def ZeroCrossing(image, sigma):
+    """Calculates the zerocrossing of the image by checking the neighbors' signs
+        if it is different and greater than the absolute value of the differences, then it is 1, else it is 0"""
     w = image.shape[0]
     h = image.shape[1]
-    img = np.zeros(image.shape)
-    thres = 2* np.sqrt(2)*sigma
-    for y in range(1, h - 1):
-        for x in range(1, w - 1):
-            patch = image[y - 1:y + 2, x - 1:x + 2]
-            p = image[y, x]
-            maxP = patch.max()
-            minP = patch.min()
+    zeroX = np.zeros(image.shape)
+    thres = 0.3 * np.max(image)
+    for i in range(1, h - 1):
+        for j in range(1, w - 1):
+            neighbors = image[i - 1:i + 2, j - 1:j + 2]
+            p = image[i, j]
+            neighborOne = neighbors.max()
+            neighborTwo = neighbors.min()
             if (p > 0):
-                zeroCross = True if minP < 0 else False
+                zeroCross = 1 if neighborTwo < 0 else 0
             else:
-                zeroCross = True if maxP > 0 else False
-            if ((maxP - minP) > thres) and zeroCross:
-                img[y, x] = 1
-    # print(img)
-    return img
+                zeroCross = 1 if neighborOne > 0 else 0
+            if (np.abs(neighborOne - neighborTwo) > thres) and zeroCross:
+                zeroX[i, j] = 1
 
-Lena = im.imread('./input/lena_gray_256.tif')
-# deviate = im.standard_deviation(Lena)
-# deviate = 1
-Lena_mask_7 = generate_mask_gauss(7, 7, 1)
-Lena_mask_13 = generate_mask_gauss(13, 13, 2)
-Lena_mask_25 = generate_mask_gauss(25, 25, 4)
+    return zeroX
 
-# Lena_7 = signal.convolve2d(Lena, Lena_mask_7)
-Lena_13 = im.gaussian_laplace(Lena, 2)
-Lena_7 = im.gaussian_laplace(Lena, 1)
-Lena_25 = signal.convolve2d(Lena, Lena_mask_25)
-Lena_7_zero = ZeroCrossing(Lena_7, 1)
-Lena_13_zero = ZeroCrossing(Lena_13, 2)
-Lena_25_zero = ZeroCrossing(Lena, 4)
-print(Lena_7_zero)
-img_plot7 = plot.imshow(Lena_7, cmap='gray')
-plot.title("Masker van 7x7 -- Lena")
-plot.savefig("./output_hw2/LenaMask7.png")
-plot.show()
-img_plot13 = plot.imshow(Lena_13, cmap='gray')
-plot.title("Masker van 13x13 -- Lena")
-plot.savefig("./output_hw2/LenaMask13.png")
-plot.show()
-"""Zero crossings"""
-img_plot7_0 = plot.imshow(Lena_7_zero, cmap='gray')
-plot.title("Zero crossing van 7x7 -- Lena")
-plot.savefig("./output_hw2/LenaZero7.png")
-plot.show()
-img_plot25 = plot.imshow(Lena_25, cmap='gray')
-plot.title("Masker van 25*25 -- Lena")
-plot.savefig("./output_hw2/LenaMask25.png")
-plot.show()
-img_plot25 = plot.imshow(Lena_13_zero, cmap='gray')
-plot.title("Zero crossing van 13*13 -- Lena")
-plot.savefig("./output_hw2/LenaZero13.png")
-plot.show()
-img_plot25 = plot.imshow(Lena_25_zero, cmap='gray')
-plot.title("Zero crossing van 25*25 -- Lena")
-plot.savefig("./output_hw2/LenaZero25.png")
-plot.show()
+
+def filterImage(imageName, filterSize, sigma, imageTitle):
+    """Opens the chosen image, applies the LoG filter and saves the result in output"""
+    """:parameter imageName must include file extension"""
+
+    imageDirectory = "./input/" + imageName
+    chosenImage = im.imread(imageDirectory)
+
+#     Calls generateMaskGaussian to generate the filter to be applied
+    LoG_mask = generateMaskGaussian(filterSize, sigma)
+
+#     applies the filter to the image
+    image_LoG = signal.convolve2d(chosenImage, LoG_mask)
+
+    plot.imshow(image_LoG, cmap = 'gray')
+    titleOfPlot = str(imageName) + "LoG mask with dimension of " + str(filterSize) + " and sigma =" + str(sigma)
+    plot.title(titleOfPlot)
+    plot.show()
+    figureOutPathFilter = "./output_hw2/" + imageTitle + ".png"
+    misc.imsave(figureOutPathFilter, image_LoG)
+
+
+#     apply the zerocrossing to obtain the image's edges
+    imageZeroX = ZeroCrossing(image_LoG, sigma)
+    plot.imshow(imageZeroX, cmap='gray')
+    # X in filename indicates zero crossing
+    titleOfPlotX = imageName + "LoG and zero crossing mask with dimension of " + str(filterSize) + " and sigma=" + str(sigma)
+    plot.title(titleOfPlot)
+    plot.show()
+    figureOutPathFilterX = "./output_hw2/" + imageTitle + "_zerocross.png"
+    misc.imsave(name=figureOutPathFilterX, arr=imageZeroX)
+
+#     plots the histogram
+
+
+
+# # calculate the LoG for Lena
+filterImage("lena_gray_256.tif", 7, 1,"lena7")
+filterImage("lena_gray_256.tif", 13, 2, "lena13")
+filterImage("lena_gray_256.tif", 25, 4, "lena25")
+#
+# calculate LoG for Camera Dude
+filterImage("cameraman.tif", 7, 1, "cameraman7")
+filterImage("cameraman.tif", 13, 2, "cameraman13")
+filterImage("cameraman.tif", 25, 4, "cameraman25")
+
+# calculate the LoG for the pictures, where the Gaussian and Laplacian is applied separately
+GaussFirst("lena_gray_256.tif", 7, 1, "lena7G")
+GaussFirst("lena_gray_256.tif", 13, 2, "lena13G")
+GaussFirst("lena_gray_256.tif", 25, 4, "lena25G")
+
+GaussFirst("cameraman.tif", 7, 1, "cameraman7G")
+GaussFirst("cameraman.tif", 13, 2, "cameraman13G")
+GaussFirst("cameraman.tif", 25, 4, "cameraman25G")
